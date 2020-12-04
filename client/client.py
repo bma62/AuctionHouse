@@ -1,10 +1,11 @@
+# import necessary packages
 import socket
 import threading
 import sys
 
 # --- functions ---
-
 def recv_msg():
+    # wait to receive message from the server and print it out
     while True:
         recv_msg = s.recv(1024)
         if not recv_msg:
@@ -13,24 +14,26 @@ def recv_msg():
         print(recv_msg)
 
 def send_msg():
+    # collect any user input and send to server
     while True:
         send_msg = input()
         send_msg = send_msg.encode()
         s.send(send_msg)
-        # print("message sent")
 
 # --- main ---
+host = '192.168.2.113' # IP of the server
+port = 3001 # which port the server is operating on
 
-host = '192.168.2.113'
-port = 3001
-
+# create a socket
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
+# connect to server
 s.connect((host, port))
 
-# thread has to start before other loop
+# start another thread on receiving message from the same socket
 t = threading.Thread(target=recv_msg)
 t.start()
 
+# main thread will enter the send_msg function
 send_msg()
 
