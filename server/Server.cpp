@@ -13,152 +13,226 @@ using namespace Sync;
 struct auctionItem
 {
     std::string name;
-    double startingPrice;
+    int startingPrice;
 };
 
+// struct for each connecting player
 struct player
 {
-    Socket& socketReference;
-    std::string name;
-    double money;
-    std::vector<std::string> bag;
+    Socket& socketReference; // which socket this player is connecting from
+    std::string name; //player name
+    int money;   //player money
+    std::vector<std::string> bag; //a vector holding action item names (string type) the player got
 };
 
-// this thread handles auction process
+// this thread handles auction process, 1 thread per auction room created by the server
 class RoomThread : public Thread
 {
 private:
-    int roomNo;
-    int capacity;
-    std::vector<auctionItem> roomItems;
-    // reference to players in the room
+    int roomNo; //an identifier
+    int capacity; //how many players this room should take
+    std::vector<auctionItem> roomItems; //items to be auctioned in this room
+
+    // store data about players in the room and their information
     std::vector<player> players;
-    //if the game has started
+    //indicator for whether the game has started
     bool joinable = true;
 
+    // a function to send messages to all players
+    void SendPlayerBroadcast (std::string msg, std::vector<player> players)
+    {
+        for (auto player : players)
+        {
+            ByteArray data(msg); //convert string to ByteArray
+            player.socketReference.Write(data); //get each player's socket& to send the data to them
+
+            //TODO: add safety check here, if size<0 etc...
+        }
+    }
+
+    // a function to send messages to one single player
+    void SendToPlayer (std::string msg, player p)
+    {
+        ByteArray data(msg); //convert string to ByteArray
+        p.socketReference.Write(data); //get the player's socket& to send the data to it
+
+        //TODO: add safety check here, if size<0 etc...
+
+    }
+
+    // a function to receive input from player and convert to string
+    std::string ReceiveFromPlayer (player p)
+    {
+        ByteArray data;
+        p.socketReference.Read(data);
+        std::string userInput = data.ToString();
+        return userInput;
+        //TODO: add safety check
+    }
+
 public:
+    // get if the room is still joinable (hasn't started)
     bool IsJoinable()
     {
         return joinable;
     }
 
+    // add player to the room's struct
     void AddPlayer(player p)
     {
         players.push_back(p);
     }
 
-    //add a destructor to close sockets in this room
+    //TODO: add a destructor to close sockets in this room
 
+    // constructor that take roomNo, # players, and items to be auctioned
     RoomThread(int roomNo, int capacity, std::vector<auctionItem> roomItems)
     {
-        this->capacity = capacity;
         this->roomNo = roomNo;
+        this->capacity = capacity;
         this->roomItems = roomItems;
     }
 
+    // the main loop for RoomThread
     virtual long ThreadMain()
     {
-        //if we don't have enough players yet, don't start the game
-        while (capacity != players.size())
+        //if we don't have enough players yet, stay here and don't start the game
+        while (players.size() != capacity)
         {
             sleep(1);
         }
 
-        ByteArray data;
-        std::string msg, userInput;
-
-        //records which player is the last bid and the bid amount
-        int lastBid;
-        double bid;
-
-        //prevent join if has enough players
+        //if we get here, there are enough players. So, prevent future joins
         this->joinable = false;
 
-        // welcome players
+        ByteArray data;
+        std::string msg, userInput; //msg will be sent to players, userInput will be received from players
+
+        //records which player is the last bid and the bid amount
+        int lastBid = -1;
+        int bid = 0;
+
+        // send welcome message to every player
         for (auto player : players)
         {
-            msg = "**Welcome " + player.name + "! The game will start now**";
-            data = ByteArray(msg);
-            player.socketReference.Write(data);
+            msg = "Welcome " + player.name + "! The game will start now.";
+            SendToPlayer(msg, player);
         }
 
+        // for each item, repeat the auction process
         for (int i = 0; i<roomItems.size(); i++)
         {
+            // for each item, broadcast starting price to all players
+            std::string itemName = roomItems[i].name;
+            int itemPrice = roomItems[i].startingPrice;
+            msg = "For " + itemName + ", the starting price is " + std::to_string(itemPrice) + ".";
+            SendPlayerBroadcast(msg, players);
+
+            //reset this last bid for each item
+            lastBid = -1;
+
+            // loop among the players for bidding
             for (int j = 0; j<players.size(); j++)
             {
-                msg = "For "+roomItems[i].name+", the starting price is "+std::to_string(roomItems[i].startingPrice);
-                data = ByteArray(msg);
-                players[j].socketReference.Write(data);
+                // check if we are back at the last bidder's round, if yes, it means everybody has passed
+                // and we can break out this item's loop
+                if (j == lastBid) break;
 
-                //if the player doesn't have enough, pass to next player
-                if (players[j].money<roomItems[i].startingPrice)
+                //if the player doesn't have enough to bid, pass to next player
+                int playerMoney = players[j].money;
+                if (playerMoney < itemPrice)
                 {
-                    msg += "**You don't have enough money to bid. Pass automatically**";
-                    data = ByteArray(msg);
-                    players[j].socketReference.Write(data);
+                    msg = "You don't have enough money to bid - passed automatically.";
+                    SendToPlayer(msg, players[j]);
+
+                    // let other players know
+                    msg = players[j].name + " passed.";
+                    SendPlayerBroadcast(msg, players);
                     continue;
                 }
-                else
+
+                //if the player has enough to bid, ask if he wants to bid
+                msg = "Enter a number to bid or enter pass: ";
+                SendToPlayer(msg, players[j]);
+                // wait for input
+                userInput = ReceiveFromPlayer(players[j]);
+
+                //if player wants to pass, skip rest and start next player's turn
+                if (userInput == "pass")
                 {
-                    msg = "Would you like to bid or pass?";
-                    data = ByteArray(msg);
-                    players[j].socketReference.Write(data);
+                    // let other players know
+                    msg = players[j].name + " passed.";
+                    SendPlayerBroadcast(msg, players);
+                    continue;
                 }
 
-                players[j].socketReference.Read(data);
-                userInput = data.ToString();
-                if (userInput == "pass") continue;
+                //if not pass, convert input to int
+                bid = std::stoi(userInput);
+
+                // check if the bid is valid
+                if (bid <= playerMoney && bid > itemPrice)
+                {
+                    //update price and record the player of a valid bid
+                    itemPrice = bid;
+                    lastBid = j;
+
+                    //broadcast the new bid to everybody
+                    msg = players[j].name + " bids for " + userInput + "!";
+                    SendPlayerBroadcast(msg, players);
+
+                    //let the player know what happens next
+                    msg = "Waiting for other players to bid...";
+                    SendToPlayer(msg, players[j]);
+                }
                 else
                 {
-                    bid = std::stod(userInput);
-                    // if the bid is valid
-                    if (bid <= players[j].money && bid>=roomItems[i].startingPrice)
-                    {
-                        //update price and record the player
-                        roomItems[i].startingPrice = bid;
-                        lastBid = j;
-                        msg = "Your bid is " + userInput + ". Waiting for other players to bid...";
-                        data = ByteArray(msg);
-                        players[j].socketReference.Write(data);
-                    }
-                    else
-                    {
-                        msg = "**Your bid is not valid. Pass automatically**";
-                        data = ByteArray(msg);
-                        players[j].socketReference.Write(data);
-                    }
+                    msg = "Your bid is not valid - passed automatically.";
+                    SendToPlayer(msg, players[j]);
+
+                    // let other players know
+                    msg = players[j].name + " passed.";
+                    SendPlayerBroadcast(msg, players);
                 }
+
+                // if the for loop has reached the last player, reset it to start from 0 again
+                // because we don't want to end this item's loop until everybody has passed after the last bidder's bid
+                // so we may need multiple rounds for one same item.
+                // decision whether to break out is at the top of this for loop
+                if (j == players.size()-1) j=-1;
             }
 
-            players[lastBid].money -= roomItems[i].startingPrice;
-            players[lastBid].bag.push_back(roomItems[i].name);
+            // after an item is auctioned, deduct money from the successful bidder and add item to his bag
+            players[lastBid].money -= itemPrice;
+            players[lastBid].bag.push_back(itemName);
 
-            //announce the result
-            for (auto player : players)
-            {
-                msg = "\nCongratulate " + players[lastBid].name +" for getting " + roomItems[i].name + "!\n";
-                player.socketReference.Write(msg);
-            }
+            //broadcast the result to everybody
+            msg = "Congratulations to " + players[lastBid].name +" for getting " + itemName + "!";
+            SendPlayerBroadcast(msg, players);
         }
 
+        // if we get here, all items have been auctioned
         for (auto player : players)
         {
+            //construct end message
             msg = "Thank you for playing. You have "+std::to_string(player.money)+" left and you bag has ";
             // print items in the player's bag
             int count = 0;
             for(count; count < player.bag.size(); count++)
                 msg += player.bag[count] + " ";
-            // if the bag has no item in it
+
+            // check if the bag has no item in it
             if (count == 0)
                 msg += "nothing in it.";
-            player.socketReference.Write(msg);
+
+            //send end message to each player
+            SendToPlayer(msg, player);
         }
 
         return 0;
     }
 };
 
-// a global vector storing reference to room threads
+// a global vector storing references to room threads
 std::vector<RoomThread*> roomThreads;
 
 // This thread handles each socket connection
@@ -184,7 +258,7 @@ public:
     virtual long ThreadMain()
     {
         std::string name;
-        double money;
+        int money;
         int roomNo;
         ByteArray data;
 
@@ -391,7 +465,7 @@ int main(void)
     std::cout << "******Enter ""exit"" to terminate the server******" << std::endl;
     
     std::string userInput;
-    double userPrice;
+    int userPrice;
     int capacity, roomNo = 0;
     std::vector<auctionItem> roomItems{};
 
