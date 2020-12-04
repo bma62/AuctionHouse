@@ -206,7 +206,7 @@ public:
             players[lastBid].bag.push_back(itemName);
 
             //broadcast the result to everybody
-            msg = "Congratulations to " + players[lastBid].name +" for getting " + itemName + "!";
+            msg = "Congratulations to " + players[lastBid].name +" for getting " + itemName + "!\n";
             SendPlayerBroadcast(msg, players);
         }
 
