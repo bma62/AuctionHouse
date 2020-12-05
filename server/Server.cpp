@@ -45,8 +45,6 @@ private:
         {
             ByteArray data(msg); //convert string to ByteArray
             player.socketReference.Write(data); //get each player's socket& to send the data to them
-
-            //TODO: add safety check here, if size<0 etc...
         }
     }
 
@@ -55,9 +53,6 @@ private:
     {
         ByteArray data(msg); //convert string to ByteArray
         p.socketReference.Write(data); //get the player's socket& to send the data to it
-
-        //TODO: add safety check here, if size<0 etc...
-
     }
 
     // a function to receive input from player and convert to string
@@ -67,7 +62,6 @@ private:
         p.socketReference.Read(data);
         std::string userInput = data.ToString();
         return userInput;
-        //TODO: add safety check
     }
 
 public:
@@ -83,7 +77,8 @@ public:
         players.push_back(p);
     }
 
-    //TODO: add a destructor to close sockets in this room
+    ~RoomThread()
+    {}
 
     // constructor that take roomNo, # players, and items to be auctioned
     RoomThread(int roomNo, int capacity, std::vector<auctionItem> roomItems)
@@ -112,120 +107,172 @@ public:
         int lastBid = -1;
         int bid = 0;
 
-        // send welcome message to every player
-        for (auto player : players)
-        {
-            msg = "Welcome " + player.name + "! The game will start now.";
-            SendToPlayer(msg, player);
-        }
-
-        // for each item, repeat the auction process
-        for (int i = 0; i<roomItems.size(); i++)
-        {
-            // for each item, broadcast starting price to all players
-            std::string itemName = roomItems[i].name;
-            int itemPrice = roomItems[i].startingPrice;
-            msg = "For " + itemName + ", the starting price is " + std::to_string(itemPrice) + ".";
-            SendPlayerBroadcast(msg, players);
-
-            //reset this last bid for each item
-            lastBid = -1;
-
-            // loop among the players for bidding
-            for (int j = 0; j<players.size(); j++)
-            {
-                // check if we are back at the last bidder's round, if yes, it means everybody has passed
-                // and we can break out this item's loop
-                if (j == lastBid) break;
-
-                //if the player doesn't have enough to bid, pass to next player
-                int playerMoney = players[j].money;
-                if (playerMoney < itemPrice)
-                {
-                    msg = "You don't have enough money to bid - passed automatically.";
-                    SendToPlayer(msg, players[j]);
-
-                    // let other players know
-                    msg = players[j].name + " passed.";
-                    SendPlayerBroadcast(msg, players);
-                    continue;
-                }
-
-                //if the player has enough to bid, ask if he wants to bid
-                msg = "Enter a number to bid or enter pass: ";
-                SendToPlayer(msg, players[j]);
-                // wait for input
-                userInput = ReceiveFromPlayer(players[j]);
-
-                //if player wants to pass, skip rest and start next player's turn
-                if (userInput == "pass")
-                {
-                    // let other players know
-                    msg = players[j].name + " passed.";
-                    SendPlayerBroadcast(msg, players);
-                    continue;
-                }
-
-                //if not pass, convert input to int
-                bid = std::stoi(userInput);
-
-                // check if the bid is valid
-                if (bid <= playerMoney && bid > itemPrice)
-                {
-                    //update price and record the player of a valid bid
-                    itemPrice = bid;
-                    lastBid = j;
-
-                    //broadcast the new bid to everybody
-                    msg = players[j].name + " bids for " + userInput + "!";
-                    SendPlayerBroadcast(msg, players);
-
-                    //let the player know what happens next
-                    msg = "Waiting for other players to bid...";
-                    SendToPlayer(msg, players[j]);
-                }
-                else
-                {
-                    msg = "Your bid is not valid - passed automatically.";
-                    SendToPlayer(msg, players[j]);
-
-                    // let other players know
-                    msg = players[j].name + " passed.";
-                    SendPlayerBroadcast(msg, players);
-                }
-
-                // if the for loop has reached the last player, reset it to start from 0 again
-                // because we don't want to end this item's loop until everybody has passed after the last bidder's bid
-                // so we may need multiple rounds for one same item.
-                // decision whether to break out is at the top of this for loop
-                if (j == players.size()-1) j=-1;
+        try {
+            // send welcome message to every player
+            for (auto player : players) {
+                msg = "Welcome " + player.name + "! The game will start now. ";
+                SendToPlayer(msg, player);
             }
 
-            // after an item is auctioned, deduct money from the successful bidder and add item to his bag
-            players[lastBid].money -= itemPrice;
-            players[lastBid].bag.push_back(itemName);
+            // for each item, repeat the auction process
+            for (int i = 0; i < roomItems.size(); i++) {
+                // for each item, broadcast starting price to all players
+                std::string itemName = roomItems[i].name;
+                int itemPrice = roomItems[i].startingPrice;
+                msg = "For " + itemName + ", the starting price is " + std::to_string(itemPrice) + ". ";
+                SendPlayerBroadcast(msg, players);
 
-            //broadcast the result to everybody
-            msg = "Congratulations to " + players[lastBid].name +" for getting " + itemName + "!\n";
-            SendPlayerBroadcast(msg, players);
-        }
+                //reset this last bid for each item
+                lastBid = -1;
 
-        // if we get here, all items have been auctioned
-        for (auto player : players)
-        {
-            //construct end message
-            msg = "Thank you for playing. You have "+std::to_string(player.money)+" left and you bag has ";
-            // print items in the player's bag
-            int count = 0;
-            for(count; count < player.bag.size(); count++)
-                msg += player.bag[count] + " ";
+                //player index for the while loop below
+                int index = 0;
 
-            // check if the bag has no item in it
-            if (count == 0)
-                msg += "nothing in it.";
+                // loop among the players for bidding
+                while(index < players.size())
+                {
+                    // check if we are back at the last bidder's round, if yes, it means everybody has passed
+                    // and we can break out this item's loop
+                    if (index == lastBid) break;
 
-            //send end message to each player
-            SendToPlayer(msg, player);
+                    //if the player doesn't have enough to bid, pass to next player
+                    int playerMoney = players[index].money;
+                    if (playerMoney < itemPrice) {
+                        msg = "You don't have enough money to bid - passed automatically. ";
+                        SendToPlayer(msg, players[index]);
+
+                        // let other players know
+                        msg = players[index].name + " passed. ";
+                        SendPlayerBroadcast(msg, players);
+                        ++index;
+                        continue;
+                    }
+
+                    //if the player has enough to bid, ask if he wants to bid
+                    msg = "Enter a number to bid or enter pass: ";
+                    SendToPlayer(msg, players[index]);
+                    // wait for input
+                    userInput = ReceiveFromPlayer(players[index]);
+
+                    //if player wants to pass, skip rest and start next player's turn
+                    if (userInput == "pass") {
+                        // let other players know
+                        msg = players[index].name + " passed. ";
+                        SendPlayerBroadcast(msg, players);
+                        ++index;
+                        continue;
+                    }
+
+                    //if not pass, convert input to int
+                    bid = std::stoi(userInput);
+
+                    // check if the bid is valid
+                    if (bid <= playerMoney && bid > itemPrice) {
+                        //update price and record the player of a valid bid
+                        itemPrice = bid;
+                        lastBid = index;
+
+                        //broadcast the new bid to everybody
+                        msg = players[index].name + " bids for " + userInput + "! ";
+                        SendPlayerBroadcast(msg, players);
+
+                        //let the player know what happens next
+                        msg = "Waiting for other players to bid... ";
+                        SendToPlayer(msg, players[index]);
+                    } else {
+                        msg = "Your bid is not valid - passed automatically. ";
+                        SendToPlayer(msg, players[index]);
+
+                        // let other players know
+                        msg = players[index].name + " passed. ";
+                        SendPlayerBroadcast(msg, players);
+                    }
+
+                    // if the loop has reached the last player, reset it to start from 0 again
+                    // because we don't want to end this item's loop until everybody has passed after the last bidder's bid
+                    // so we may need multiple rounds for one same item.
+                    // decision whether to break out is at the top of this loop
+                    if (index == (players.size() - 1)) index = 0;
+                    else ++index;
+                }
+
+                // after an item's round is done, check if everybody passed on it
+                if (index == players.size()) msg = "All players passed - item skipped. \n";
+                // otherwise, it is is auctioned
+                else
+                {
+                    //deduct money from the successful bidder and add item to his bag
+                    players[lastBid].money -= itemPrice;
+                    players[lastBid].bag.push_back(itemName);
+
+                    //broadcast the result to everybody
+                    msg = "Congratulations to " + players[lastBid].name + " for getting " + itemName + "!\n";
+                }
+
+                SendPlayerBroadcast(msg, players);
+            }
+
+            // if we get here, all items have been auctioned
+            for (auto player : players)
+            {
+                //construct end message
+                msg = "Thank you for playing. You have " + std::to_string(player.money) + " left and you bag has ";
+                // print items in the player's bag
+                int count = 0;
+                for (count; count < player.bag.size(); count++)
+                    msg += player.bag[count] + " ";
+
+                // check if the bag has no item in it
+                if (count == 0)
+                    msg += "nothing in it.";
+
+                //send end message to each player
+                SendToPlayer(msg, player);
+
+                // Close the player sockets upon completion of game
+                std::string msg = "\nConnection closed.";
+                SendToPlayer(msg, player);
+                // Close the socket
+                player.socketReference.Close();
+            }
+
+            // show message to server as well
+            std::cout << "Room " + std::to_string(roomNo) + " has finished and all players gracefully terminated. " <<std::endl;
+
+        } catch (...) {
+            // if any player socket was disconnected during the game, an exception will be raised - terminate the game
+            std::cout << "Player disconnected in room " << std::to_string(roomNo) << ". The game will end right away. " <<std::endl;
+
+            // close all sockets right away
+            for (auto player : players)
+            {
+                //construct end message
+                msg = "The game has ended. You have " + std::to_string(player.money) + " left and you bag has ";
+                // print items in the player's bag
+                int count = 0;
+                for (count; count < player.bag.size(); count++)
+                    msg += player.bag[count] + " ";
+
+                // check if the bag has no item in it
+                if (count == 0)
+                    msg += "nothing in it.";
+
+                try
+                {
+                    //send end message to each player
+                    SendToPlayer(msg, player);
+
+                    // Close the player sockets upon completion of game
+                    std::string msg = "\nConnection closed.";
+                    SendToPlayer(msg, player);
+                    // Close the socket
+                    player.socketReference.Close();
+                }
+                catch (...) {
+                    // if socket has been closed, that's ok, no need to do anything
+                }
+            }
+            return 0;
         }
 
         return 0;
@@ -269,7 +316,7 @@ public:
             // Send msg to player and check number of bytes successfully written
             if (socketReference.Write(data) != data.v.size())
             {
-                std::cout << "Socket has been closed at the client side before joining a room." << std::endl;
+                std::cout << "Socket has been closed." << std::endl;
                 return 0;
             }
 
@@ -279,7 +326,7 @@ public:
             //check the result of read
             if (data.v.size() == 0)
             {
-                std::cout << "Socket has been closed at the client side before joining a room." << std::endl;
+                std::cout << "Socket has been closed." << std::endl;
                 return 0;
             }
 
@@ -295,12 +342,12 @@ public:
                 name = data.ToString();
             }
 
+            // ask for money
             data = ByteArray("How much do you have?");
 
-            // ask for money
             if (socketReference.Write(data) != data.v.size())
             {
-                std::cout << "Socket has been closed at the client side before joining a room." << std::endl;
+                std::cout << "Socket has been closed." << std::endl;
                 return 0;
             }
 
@@ -310,7 +357,7 @@ public:
             //check the result of read
             if (data.v.size() == 0)
             {
-                std::cout << "Socket has been closed at the client side before joining a room." << std::endl;
+                std::cout << "Socket has been closed." << std::endl;
                 return 0;
             }
 
@@ -323,7 +370,7 @@ public:
             //read looks good, convert to money
             else
             {
-                money = std::stod(data.ToString());
+                money = std::stoi(data.ToString());
             }
 
             // try to join the player into a room
@@ -334,7 +381,7 @@ public:
                 // Send msg to player and check number of bytes successfully written
                 if (socketReference.Write(data) != data.v.size())
                 {
-                    std::cout << "Socket has been closed at the client side before joining a room." << std::endl;
+                    std::cout << "Socket has been closed." << std::endl;
                     return 0;
                 }
 
@@ -344,7 +391,7 @@ public:
                 //check the result of read
                 if (data.v.size() == 0)
                 {
-                    std::cout << "Socket has been closed at the client side before joining a room." << std::endl;
+                    std::cout << "Socket has been closed." << std::endl;
                     return 0;
                 }
 
@@ -366,7 +413,7 @@ public:
                         continue;
                     }
 
-                    //check if room is still joinable
+                    //check if the specified room is still joinable
                     if (!roomThreads[roomNo-1]->IsJoinable())
                     {
                         data = ByteArray("Game has started. Try another room.");
@@ -374,9 +421,9 @@ public:
                         continue;
                     }
 
-                    //put player into the room
+                    //if room is still joinable, struct player using data we received above
                     player p = {socketReference, name, money};
-                    roomThreads[roomNo-1]->AddPlayer(p);
+                    roomThreads[roomNo-1]->AddPlayer(p); // add player data to the room
                     data = ByteArray("You have been added to the room. Waiting for the game to start...");
                     socketReference.Write(data);
                     break;
@@ -385,7 +432,8 @@ public:
         }
         catch (...)
         {
-            // We catch the exception, but there is nothing for us to do with it here. Close the thread.
+            // catch the exception, but there is nothing for us to do with it here.
+            // Close the thread
         }
         return 0;
     }
@@ -401,8 +449,6 @@ private:
     //vector to store connected sockets
     std::vector<SocketThread*> socketThreads;
 
-    bool terminate = false;
-
 public:
     ServerThread(SocketServer& server)
     : server(server)
@@ -410,7 +456,7 @@ public:
 
     ~ServerThread()
     {
-        // Close the client sockets
+        //in case there are any active client sockets left, close them
         for (auto thread : socketThreads)
         {
             try
@@ -420,12 +466,9 @@ public:
             }
             catch (...)
             {
-                // If already ended, this will cause an exception
+                // If already ended, this will cause an exception, but that's ok
             }
         }
-
-        // Terminate the thread loops
-        terminate = true;
     }
 
     virtual long ThreadMain()
@@ -480,7 +523,7 @@ int main(void)
         //ask whether to create new room
         while (true)
         {
-            std::cout << "**Type y to create a new room**" << std::endl;
+            std::cout << "Type y to create a new room" << std::endl;
             getline(std::cin, userInput);
 
             // This will wait for input to shutdown the server
@@ -513,9 +556,8 @@ int main(void)
             //ask item names and prices
             while (true)
             {
-                std::cout << "What item would you like to add? (Enter done to finish adding)" << std::endl;
+                std::cout << "What item would you like to add? (enter done to finish)" << std::endl;
                 getline(std::cin, userInput);
-
                 // if done
                 if (userInput == "done")
                 {
@@ -532,7 +574,7 @@ int main(void)
                 // ask price and check input
                 while (true)
                 {
-                    std::cout << "How much should the starting price of " << userInput << " be?" << std::endl;
+                    std::cout << "How much is the starting price of " << userInput << "?" << std::endl;
                     if (std::cin >> userPrice) {// valid number
                         //ignore new line char for getline
                         std::cin.ignore(1000, '\n');
@@ -549,9 +591,12 @@ int main(void)
                 auctionItem userItem = {userInput, userPrice};
                 roomItems.push_back(userItem);
             }
+
             //create a new room thread and pass items
             ++roomNo;
             roomThreads.push_back(new RoomThread(roomNo,capacity,roomItems));
+
+            std::cout << "**Room "<< roomNo << " has been created with capacity of " << capacity <<" players**" << std::endl;
 
             // clear items to start again
             roomItems.clear();
