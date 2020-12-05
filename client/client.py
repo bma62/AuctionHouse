@@ -17,13 +17,18 @@ def send_msg():
     # collect any user input and send to server
     while True:
         send_msg = input()
+        #the user may shutdown the client if they enter 'quit'
+        if send_msg == 'QUIT' :
+            sys.exit(0)
         send_msg = send_msg.encode()
         s.send(send_msg)
 
 # --- main ---
 host = '192.168.2.113' # IP of the server
 port = 3001 # which port the server is operating on
-
+#welcome message and instructions
+print('Welcome to The SE3313 Auction House CLient Application\n')
+print('You May Exit This Application at Any Time By Typing "QUIT" ')
 # create a socket
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
